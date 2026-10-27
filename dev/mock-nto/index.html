@@ -1,0 +1,45 @@
+<!doctype html><html><head><meta charset="utf-8"><title>NTO Idle (demo)</title>
+<style>body{margin:0;background:#3b4a3a;font-family:sans-serif;color:#fff;height:100vh;overflow:hidden}
+#toolbar{position:absolute;left:0;right:0;top:0;height:50px;background:#20160e;display:flex;align-items:center;justify-content:center;gap:20px}
+.win{position:absolute;background:#1b1d26;border:1px solid #444;border-radius:8px;padding:8px;font-size:12px}
+.grass{position:absolute;inset:0;background:repeating-linear-gradient(45deg,#556b4a 0 20px,#5d7451 20px 40px)}
+.mob{position:absolute;left:45%;top:45%;width:90px;height:90px;border-radius:50%;background:radial-gradient(#ffb347,#c2410c)}
+</style></head><body><div id="screen-game"><div class="grass"></div><div class="mob"></div>
+<div id="toolbar">SHOP · BAZAR · MERCADO · JOGAR · MISSÕES · OPÇÕES</div>
+<div class="win" data-win="charinfo" data-fixed style="left:10px;top:60px;width:220px;height:120px">PERSONAGEM</div>
+<div class="win" data-win="inventory" style="left:10px;top:190px;width:220px;height:200px">INVENTÁRIO</div>
+<div class="win" data-win="battle" style="left:1300px;top:60px;width:200px;height:150px">BATALHA</div>
+<div class="win" data-win="hunt" style="right:10px;top:220px;width:200px;height:200px">HUNT ANALYZER</div>
+<div class="win" data-win="chat" style="left:30%;bottom:10px;width:40%;height:120px">CHAT</div>
+</div>
+<script>
+const name = new URLSearchParams(location.search).get('n') || ['Sonnin','Sheele','Itachi','Kakashi'][Math.floor(Math.random()*4)];
+const H = {}, on = (o) => (n, f) => (o[n] ||= []).push(f), emit = (o) => (n, ...a) => (o[n] || []).forEach(f => f(...a));
+const net = { h: {} }; net.on = on(net.h); net.emit = emit(net.h);
+const c = { h: {}, mode: 'hunt', zone: { name: 'Santuário Proibido' }, enemy: { name: 'Fuyuki', hp: 90 },
+  p: { name, level: 812, exp: 8916300000, hp: 1450000, mana: 547600, stamina: 26.7 * 3600e3, gold: 24500,
+       inventory: [{ id: 2150, count: 257 }, { id: 2149, count: 26 }, ...Array.from({ length: 12 }, (_, i) => ({ id: 3000 + i, count: 1 }))],
+       task: { kind: 'kill', have: 2640, need: 3000, name: 'Fuyuki' } },
+  session: { start: Date.now() - 6.4e6, kills: 1284, exp: 103.95e6, gold: 282000, deaths: 0, loot: { 30312: 140, 30313: 9 } } };
+c.on = on(c.h); c.emit = emit(c.h);
+window.NTO = { ctx: { client: c, net, p: c.p } };
+let t = 0;
+setInterval(() => {
+  t++;
+  c.p.exp += 16e3; c.session.exp += 16e3; c.session.kills++; c.session.gold += 50;
+  c.p.hp = 1450000 * (0.6 + 0.4 * Math.abs(Math.sin(t / 7)));
+  c.enemy.hp = Math.max(1, 100 - (t * 7) % 100);
+  if (t % 4 === 0) c.p.inventory[0].count--;
+  if (t % 3 === 0) { c.session.loot[30312] = (c.session.loot[30312] || 0) + 2; }
+  if (t % 7 === 0) { c.session.loot[30313] = (c.session.loot[30313] || 0) + 1; }
+  if (t === 12) c.p.task.have = 3000;
+  if (t === 20 && name === 'Sheele') c.mode = 'dead';
+  if (t === 30) { c.session = { start: Date.now(), kills: 0, exp: 0, gold: 0, deaths: 0, loot: {} }; c.zone = { name: 'Vale do Fim' }; }
+  c.emit('state');
+}, 500);
+setTimeout(() => net.emit('chat', { ch: 'pm', from: 'Madara', text: 'vende o set?' }), 6000);
+setTimeout(() => net.emit('chat', { ch: 'mundo', from: 'Obito', text: 'alguem viu o ' + name + '?' }), 9000);
+
+// imita o jogo: no resize, empurra para dentro e não devolve
+addEventListener('resize', () => document.querySelectorAll('.win').forEach(w => { const max = innerWidth - w.offsetWidth - 10; if (w.offsetLeft > max) w.style.left = Math.max(0, max) + 'px'; }));
+</script></body></html>

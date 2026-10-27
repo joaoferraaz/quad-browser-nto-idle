@@ -1,0 +1,42 @@
+# Gera o .exe no Windows e anexa na Release do GitHub.
+# Dispara ao enviar uma tag "v*" (ex.: git tag v1.0.0 && git push --tags)
+# ou manualmente pela aba Actions (aí o .exe fica em "Artifacts").
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx electron-builder --win --publish never
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quad-browser-windows
+          path: |
+            dist/*-portable.exe
+            dist/*-setup.exe
+
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*-portable.exe
+            dist/*-setup.exe
