@@ -1,0 +1,71 @@
+{
+  "name": "quad-browser",
+  "productName": "Quad Browser",
+  "version": "1.0.1",
+  "description": "Quad Browser",
+  "main": "main.js",
+  "author": "João Victor Ferraz",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "janela1": "electron . --janela=1",
+    "janela2": "electron . --janela=2",
+    "janela3": "electron . --janela=3",
+    "janela4": "electron . --janela=4",
+    "dist": "electron-builder --win portable nsis"
+  },
+  "devDependencies": {
+    "electron": "^37.10.3",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "quadbrowser",
+    "productName": "Quad Browser",
+    "files": [
+      "main.js",
+      "preload.js",
+      "plugins/**/*",
+      "ui/**/*",
+      "build/icon.png",
+      "build/icon.ico"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "legalTrademarks": "Quad Browser"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "QuadBrowser-${version}-setup.exe",
+      "createDesktopShortcut": true,
+      "shortcutName": "Quad Browser"
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "portable": {
+      "artifactName": "QuadBrowser-${version}-portable.exe"
+    },
+    "publish": null,
+    "copyright": "Copyright © 2026 João Victor Ferraz"
+  },
+  "homepage": "https://github.com/SEU-USUARIO/quad-browser",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SEU-USUARIO/quad-browser.git"
+  }
+}
