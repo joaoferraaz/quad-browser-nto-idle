@@ -9,25 +9,12 @@ const X_ICON = '<svg viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8"/></svg>';
 // ---------- monta as 4 janelas ----------
 const panels = [];
 for (let p = 0; p < PANELS; p++) {
-  const el = tpl.content.firstElementChild.cloneNode(true);
+  const el = tpl.content.firstElementChild.cloneNode(true), q = (c) => el.querySelector('.' + c);
   el.dataset.p = p;
-  el.querySelector('.badge b').textContent = 'J' + (p + 1);
-  const url = el.querySelector('.url');
-  const ref = {
-    el,
-    tabs: el.querySelector('.tabs'),
-    add: el.querySelector('.add'),
-    back: el.querySelector('.back'),
-    fwd: el.querySelector('.fwd'),
-    reload: el.querySelector('.reload'),
-    clear: el.querySelector('.clear'),
-    expand: el.querySelector('.expand'),
-    url,
-    content: el.querySelector('.content'),
-    count: el.querySelector('.count'),
-    seen: new Set(),
-    editing: false,
-  };
+  q('badge b').textContent = 'J' + (p + 1);
+  const ref = { el, seen: new Set() };
+  for (const k of ['tabs', 'add', 'back', 'fwd', 'reload', 'clear', 'expand', 'url', 'content', 'count']) ref[k] = q(k);
+  const url = ref.url;
 
   el.addEventListener('mousedown', () => window.qb.cmd('activate', p));
   ref.add.onclick = () => window.qb.cmd('newTab', p);
@@ -37,7 +24,7 @@ for (let p = 0; p < PANELS; p++) {
     const t = currentTab(p);
     window.qb.cmd(t && t.loading ? 'stop' : 'reload', p);
   };
-  el.querySelector('.home').onclick = () => window.qb.cmd('home', p);
+  q('home').onclick = () => window.qb.cmd('home', p);
   ref.expand.onclick = () => {
     const focusedHere = state && state.mode === 'focus' && state.focused === p;
     window.qb.cmd('setMode', focusedHere ? 'grid' : 'focus', p);
@@ -59,17 +46,11 @@ for (let p = 0; p < PANELS; p++) {
   const clearIcon = ref.clear.innerHTML;
   function disarm() { ref.clear.classList.remove('armed'); ref.clear.innerHTML = clearIcon; }
 
-  url.addEventListener('focus', () => { ref.editing = true; url.select(); });
-  url.addEventListener('blur', () => { ref.editing = false; render(); });
-  url.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { ref.editing = false; url.blur(); }
-  });
-  el.querySelector('.url-form').addEventListener('submit', (e) => {
-    e.preventDefault();
-    ref.editing = false;
-    window.qb.cmd('navigate', p, url.value);
-    url.blur();
-  });
+  // enquanto a barra de endereço tem foco, o render não sobrescreve o que está sendo digitado
+  url.addEventListener('focus', () => url.select());
+  url.addEventListener('blur', render);
+  url.addEventListener('keydown', (e) => { if (e.key === 'Escape') url.blur(); });
+  q('url-form').addEventListener('submit', (e) => { e.preventDefault(); window.qb.cmd('navigate', p, url.value); url.blur(); });
 
   grid.appendChild(el);
   panels.push(ref);
@@ -126,7 +107,7 @@ function render() {
       ? '<svg viewBox="0 0 16 16"><path d="M6 2.5V6H2.5M13.5 6H10V2.5M10 13.5V10h3.5M2.5 10H6v3.5"/></svg>'
       : '<svg viewBox="0 0 16 16"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg>';
 
-    if (!ref.editing && t) ref.url.value = t.url === 'about:blank' ? '' : t.url;
+    if (document.activeElement !== ref.url && t) ref.url.value = t.url === 'about:blank' ? '' : t.url;
   });
 
   movePill();
@@ -179,6 +160,17 @@ function renderTabs(p, s) {
 
     tab.onclick = () => window.qb.cmd('selectTab', p, i);
     tab.onauxclick = (e) => { if (e.button === 1) window.qb.cmd('closeTab', p, i); };
+    // arrastar para reordenar (só dentro da mesma janela)
+    tab.draggable = true;
+    tab.ondragstart = (e) => { e.dataTransfer.setData('text/qb-tab', `${p}:${i}`); e.dataTransfer.effectAllowed = 'move'; tab.classList.add('dragging'); };
+    tab.ondragend = () => tab.classList.remove('dragging');
+    tab.ondragover = (e) => { if (e.dataTransfer.types.includes('text/qb-tab')) { e.preventDefault(); tab.classList.add('drop'); } };
+    tab.ondragleave = () => tab.classList.remove('drop');
+    tab.ondrop = (e) => {
+      e.preventDefault(); tab.classList.remove('drop');
+      const [fp, fi] = e.dataTransfer.getData('text/qb-tab').split(':').map(Number);
+      if (fp === p) window.qb.cmd('moveTab', p, fi, i);
+    };
     tab.append(icon, title, x);
     box.appendChild(tab);
   });
@@ -247,7 +239,7 @@ function renderHomes() {
 
 async function openSettings() {
   if (!sheet.hidden) return;
-  if (typeof closeHistory === 'function') closeHistory();
+  overlays.forEach((o) => o.close());
   showSetTab('home'); // sempre abre na primeira aba
   window.qb.settings.setOpen(true);
   draft = await window.qb.settings.get();
@@ -320,6 +312,7 @@ const MODE_TXT = { hunt: 'caçando', travel: 'viajando', loading: 'viajando', de
 window.qb.onPlugins((s) => {
   plug = s;
   document.getElementById('openHistory').hidden = !s.on.historico;
+  document.getElementById('openTimers').hidden = !s.timers;
   panels.forEach((_, p) => renderStatus(p));
 });
 
@@ -330,40 +323,56 @@ window.qb.onPluginAlert((a) => {
   setTimeout(() => el.classList.remove('alerting', 'danger'), 3800);
 });
 
-function renderStatus(p) {
-  const box = statusEls[p];
-  const info = plug?.panels[p];
-  const show = !!(plug?.on.painel && plug.wins.painel[p] && info?.snap?.inGame);
-  box.hidden = !show;
-  if (!show) { box.textContent = ''; requestAnimationFrame(sendLayout); return; }
-  const b = info.snap, th = plug.thresholds || {};
-  const pct = (v) => Math.round((v || 0) * 100);
-  const lowSt = b.stamina < (th.staminaH ?? 40) * 3600e3;
-  const lowPot = Math.min(b.pots.hp, b.pots.ki) < (th.potMin ?? 100);
-  const bagFull = b.bag.cap && b.bag.cap - b.bag.used <= (th.bagFree ?? 3);
+const pct = (v) => Math.round((v || 0) * 100);
+const chip = (cls, title, inner) => `<span class="chip ${cls}" title="${esc(title)}">${inner}</span>`;
+const bar = (cls, v) => `<span class="minibar ${cls}"><i style="width:${pct(v)}%"></i></span>`;
+
+function chipsNto(b, th) {
   const taskDone = b.task && b.task.need && b.task.have >= b.task.need;
+  return [
+    chip('who', '', `<i class="dot ${b.mode}"></i><b>${esc(b.name)}</b><small>Lv ${b.level}</small>`),
+    chip(`mode ${b.mode === 'dead' ? 'danger' : ''}`, b.zone || '', `${MODE_TXT[b.mode] || esc(b.mode)}${b.zone ? ` <small class="z">${esc(b.zone)}</small>` : ''}`),
+    chip(b.hpPct * 100 < (th.hpPct ?? 25) ? 'danger' : '', `Vida ${pct(b.hpPct)}% · Ki ${pct(b.kiPct)}%`, bar('hp', b.hpPct) + bar('ki', b.kiPct)),
+    chip('xp', `Exp do level: ${pct(b.expPct)}%`, `${bar('xp', b.expPct)}<b>${pct(b.expPct)}%</b>`),
+    b.session && chip('eph', 'Exp/h da sessão', `<small>exp/h</small><b>${nf(b.session.eph)}</b>`),
+    b.session && chip('ess', `Essência de Chakra Pura: ${nf(b.session.pura)} na sessão (${nf(b.essInv?.pura)} na mochila)`, `<small>pura/h</small><b>${rt(b.session.puraPh)}</b>`),
+    b.session && chip('ess', `Essência de Chakra: ${nf(b.session.ess)} na sessão (${nf(b.essInv?.ess)} na mochila)`, `<small>ess/h</small><b>${rt(b.session.essPh)}</b>`),
+    chip(b.stamina < (th.staminaH ?? 40) * 3600e3 ? 'warn' : '', 'Stamina', `<small>stamina</small><b>${hm(b.stamina)}</b>`),
+    b.task && chip(taskDone ? 'warn' : '', `Task ${b.task.name}`, `<small>task</small><b>${nf(b.task.have)}/${nf(b.task.need)}</b>`),
+    chip(`pot ${Math.min(b.pots.hp, b.pots.ki) < (th.potMin ?? 100) ? 'warn' : ''}`, 'Heal Potion / Chakra Potion', `<small>pot</small><b>${nf(b.pots.hp)}/${nf(b.pots.ki)}</b>`),
+    chip(`bag ${b.bag.cap && b.bag.cap - b.bag.used <= (th.bagFree ?? 3) ? 'warn' : ''}`, 'Mochila', `<small>bag</small><b>${b.bag.used}/${b.bag.cap}</b>`),
+  ];
+}
+
+function chipsEiw(b, th) {
+  const t = b.tamer || {}, pa = b.partner, l = b['eiw-lucro'];
+  const st = !b.connected ? ['dead', 'desconectado'] : b.farming ? ['hunt', 'caçando'] : ['idle', 'parado'];
+  return [
+    chip('who', `${nf(b.bits)} Bits${b.cash != null ? ` · ${nf(b.cash)} EIW-COIN` : ''}`, `<i class="dot ${st[0]}"></i><b>${esc(b.name)}</b><small>Tamer ${t.level ?? '?'}</small>`),
+    chip(`mode ${st[0] === 'dead' ? 'danger' : ''}`, '', st[1]),
+    pa && chip(pa.hpPct * 100 < (th.hpPct ?? 25) ? 'danger' : '', `${pa.name || 'Digimon ativo'} · vida ${pa.hp}/${pa.max} · XP ${nf(pa.xp)}/${nf(pa.next)}`, `<small>${esc(pa.name || 'Digimon')} ${pa.level}</small>${bar('hp', pa.hpPct)}`),
+    chip('xp', `Tamer: ${pct(t.pct)}% do nível`, `${bar('xp', t.pct)}<b>${pct(t.pct)}%</b>`),
+    t.xph != null && chip('eph', 'XP do Tamer por hora', `<small>xp/h</small><b>${nf(t.xph)}</b>`),
+    b.kph != null && chip('mode', 'Kills por hora', `<small>kills/h</small><b>${nf(b.kph)}</b>`),
+    l && l.netPh != null && chip(l.netPh < 0 ? 'warn' : '', `Ganho ${nf(l.earnedPh)}/h · gasto ${nf(l.spentPh)}/h (cura, compras)`, `<small>bits/h</small><b>${l.netPh > 0 ? '+' : ''}${nf(l.netPh)}</b>`),
+    t.free > 0 && chip('warn', 'Pontos de Tamer para distribuir', `<small>pontos</small><b>${t.free}</b>`),
+  ];
+}
+
+function renderStatus(p) {
+  const box = statusEls[p], info = plug?.panels[p], b = info?.snap;
+  const pid = b?.game === 'eiw' ? 'eiw-painel' : 'painel';
+  box.hidden = !(b?.inGame && plug.on[pid] && plug.wins[pid][p]);
+  if (box.hidden) { box.textContent = ''; return; }
   const last = info.alerts?.[0];
-  const recent = last && Date.now() - last.at < 10 * 60e3;
   const html = [
-    `<span class="chip who"><i class="dot ${b.mode}"></i><b>${esc(b.name)}</b><small>Lv ${b.level}</small></span>`,
-    `<span class="chip mode ${b.mode === 'dead' ? 'danger' : ''}" title="${esc(b.zone || '')}">${MODE_TXT[b.mode] || esc(b.mode)}${b.zone ? ` <small class="z">${esc(b.zone)}</small>` : ''}</span>`,
-    `<span class="chip ${b.hpPct * 100 < (th.hpPct ?? 25) ? 'danger' : ''}" title="Vida ${pct(b.hpPct)}% · Ki ${pct(b.kiPct)}%"><span class="minibar hp"><i style="width:${pct(b.hpPct)}%"></i></span><span class="minibar ki"><i style="width:${pct(b.kiPct)}%"></i></span></span>`,
-    `<span class="chip xp" title="Exp do level: ${pct(b.expPct)}%"><span class="minibar xp"><i style="width:${pct(b.expPct)}%"></i></span><b>${pct(b.expPct)}%</b></span>`,
-    b.session ? `<span class="chip eph" title="Exp/h da sessão"><small>exp/h</small><b>${nf(b.session.eph)}</b></span>` : '',
-    b.session ? `<span class="chip ess" title="Essência de Chakra Pura: ${nf(b.session.pura)} na sessão (${nf(b.essInv?.pura)} na mochila)"><small>pura/h</small><b>${rt(b.session.puraPh)}</b></span>` : '',
-    b.session ? `<span class="chip ess" title="Essência de Chakra: ${nf(b.session.ess)} na sessão (${nf(b.essInv?.ess)} na mochila)"><small>ess/h</small><b>${rt(b.session.essPh)}</b></span>` : '',
-    `<span class="chip ${lowSt ? 'warn' : ''}" title="Stamina"><small>stamina</small><b>${hm(b.stamina)}</b></span>`,
-    b.task ? `<span class="chip ${taskDone ? 'warn' : ''}" title="Task ${esc(b.task.name)}"><small>task</small><b>${nf(b.task.have)}/${nf(b.task.need)}</b></span>` : '',
-    `<span class="chip pot ${lowPot ? 'warn' : ''}" title="Heal Potion / Chakra Potion"><small>pot</small><b>${nf(b.pots.hp)}/${nf(b.pots.ki)}</b></span>`,
-    `<span class="chip bag ${bagFull ? 'warn' : ''}" title="Mochila"><small>bag</small><b>${b.bag.used}/${b.bag.cap}</b></span>`,
-    recent ? `<button class="alert ${last.level}" title="${esc(last.text)} (clique para limpar)">${ICON_BELL}<span>${esc(last.text)}</span></button>` : '',
-  ].join('');
-  if (box.dataset.h !== html) {
-    box.dataset.h = html; box.innerHTML = html;
-    const a = box.querySelector('.alert');
-    if (a) a.onclick = () => window.qb.plugins.clearAlerts(p);
-  }
-  if (box.dataset.shown !== '1') { box.dataset.shown = '1'; requestAnimationFrame(sendLayout); }
+    ...(b.game === 'eiw' ? chipsEiw(b, plug.thresholds.eiw || {}) : chipsNto(b, plug.thresholds.nto || {})),
+    last && Date.now() - last.at < 10 * 60e3 && `<button class="alert ${last.level}" title="${esc(last.text)} (clique para limpar)">${ICON_BELL}<span>${esc(last.text)}</span></button>`,
+  ].filter(Boolean).join('');
+  if (box.dataset.h === html) return;
+  box.dataset.h = html; box.innerHTML = html;
+  const a = box.querySelector('.alert');
+  if (a) a.onclick = () => window.qb.plugins.clearAlerts(p);
 }
 // a faixa muda a altura da área da página: reavisa o layout quando some
 new MutationObserver(() => requestAnimationFrame(sendLayout)).observe(grid, { subtree: true, attributes: true, attributeFilter: ['hidden'] });
@@ -373,6 +382,9 @@ const PLUG_ICONS = {
   painel: '<svg viewBox="0 0 16 16"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M2 6h12M5 9h3M5 11h5"/></svg>',
   compacto: '<svg viewBox="0 0 16 16"><path d="M6 2.5V6H2.5M13.5 6H10V2.5M10 13.5V10h3.5M2.5 10H6v3.5"/></svg>',
   historico: '<svg viewBox="0 0 16 16"><path d="M2.5 13.5h11M4.5 11V8M7.5 11V5M10.5 11V7"/></svg>',
+  'eiw-painel': '<svg viewBox="0 0 16 16"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M2 6h12M5 9h3M5 11h5"/></svg>',
+  'eiw-lucro': '<svg viewBox="0 0 16 16"><path d="M2.5 12.5 6 9l2.5 2.5 5-5M10 6.5h3.5V10"/></svg>',
+  'eiw-timers': '<svg viewBox="0 0 16 16"><circle cx="8" cy="8.5" r="5.5"/><path d="M8 5.5v3l2 1.5M6.5 1.5h3"/></svg>',
   layout: '<svg viewBox="0 0 16 16"><rect x="2" y="2.5" width="5" height="5" rx="1"/><rect x="9" y="2.5" width="5" height="8" rx="1"/><rect x="2" y="9.5" width="5" height="4" rx="1"/><path d="M9 13.5h5"/></svg>',
 };
 const pluginList = document.getElementById('pluginList');
@@ -393,7 +405,9 @@ async function renderPluginList() {
   plugMeta = await window.qb.plugins.get();
   const open = new Set([...pluginList.querySelectorAll('.plug-card.open')].map((c) => c.dataset.id));
   pluginList.textContent = '';
+  let game = null;
   for (const m of plugMeta.manifest) {
+    if (m.game !== game) { game = m.game; pluginList.insertAdjacentHTML('beforeend', `<h4 class="plug-game">${esc(plugMeta.games[game] || game)}</h4>`); }
     const c = plugMeta.cfg[m.id];
     const card = document.createElement('div');
     card.className = 'plug-card' + (c.on ? ' on' : '') + (open.has(m.id) ? ' open' : '');
@@ -442,23 +456,29 @@ function field(f, v) {
 const histSheet = document.getElementById('histSheet');
 const histBody = document.getElementById('histBody');
 const histChar = document.getElementById('histChar');
-let histData = null, histTimer = null;
+let histData = null;
 const targets = {}; // char -> level alvo (só nesta sessão do app)
 const expFor = (L) => Math.floor((50 * L * L * L - 150 * L * L + 400 * L) / 3); // mesma fórmula do jogo
 
-async function openHistory() {
-  if (!sheet.hidden) closeSettings();
-  if (!histSheet.hidden) return;
-  window.qb.settings.setOpen(true);
-  histSheet.hidden = false;
-  await loadHistory();
-  histTimer = setInterval(loadHistory, 5000);
+// telas sobrepostas (histórico, timers): abrir uma fecha as outras e esconde as páginas enquanto aberta
+const overlays = [];
+function overlay(el, load, everyMs) {
+  let timer = null;
+  const o = {
+    async open() {
+      if (!el.hidden) return;
+      closeSettings(); overlays.forEach((x) => x !== o && x.close());
+      window.qb.settings.setOpen(true); el.hidden = false;
+      await load(); timer = setInterval(load, everyMs);
+    },
+    close() { if (el.hidden) return; el.hidden = true; clearInterval(timer); window.qb.settings.setOpen(false); },
+  };
+  el.addEventListener('click', (e) => { if (e.target === el || e.target.closest('[data-close]')) o.close(); });
+  overlays.push(o);
+  return o;
 }
-function closeHistory() {
-  if (histSheet.hidden) return;
-  histSheet.hidden = true; clearInterval(histTimer);
-  window.qb.settings.setOpen(false);
-}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') overlays.forEach((o) => o.close()); });
+const History = overlay(histSheet, () => loadHistory(), 5000);
 async function loadHistory() {
   histData = await window.qb.hunts.get();
   const names = [...new Set([...histData.chars.map((c) => c.char), ...histData.hunts.map((h) => h.char)])].sort();
@@ -534,7 +554,31 @@ document.getElementById('histCsv').onclick = async () => {
   const who = histChar.value;
   await window.qb.hunts.exportCsv(histData?.hunts.filter((h) => !who || h.char === who));
 };
-histSheet.addEventListener('click', (e) => { if (e.target === histSheet || e.target.closest('[data-close]')) closeHistory(); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !histSheet.hidden) { e.preventDefault(); closeHistory(); } });
-document.getElementById('openHistory').onclick = openHistory;
-window.qb.onOpenHistory?.(openHistory);
+document.getElementById('openHistory').onclick = History.open;
+window.qb.onOpenHistory(History.open);
+
+// ======================================================================
+// Central de timers
+// ======================================================================
+const timersBody = document.getElementById('timersBody');
+const KIND_ICON = { reset: '↻', boss: '♛', egg: '◐', buff: '✦', level: '▲', mission: '⚑' };
+const clock = (at) => new Date(at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+const left = (ms) => { const s = Math.round(Math.abs(ms) / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h >= 48 ? `${Math.floor(h / 24)}d ${h % 24}h` : h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m ${String(s % 60).padStart(2, '0')}s`; };
+
+async function loadTimers() {
+  const now = Date.now(), list = await window.qb.timers();
+  const next = list.filter((t) => t.at > now).sort((a, b) => a.at - b.at);
+  const past = list.filter((t) => t.at <= now && now - t.at < 3 * 3600e3).sort((a, b) => b.at - a.at);
+  const row = (t) => `<div class="tm-row ${t.at <= now ? 'past' : t.at - now < 10 * 60e3 ? 'soon' : ''}">
+    <span class="tm-ic">${KIND_ICON[t.kind] || '•'}</span>
+    <span class="badge tm-who" data-p="${t.panel ?? ''}"><i></i><b>${t.panel == null ? 'Servidor' : `J${t.panel + 1}`}</b></span>
+    <span class="tm-txt"><b>${esc(t.label)}</b><small>${esc([t.who, t.detail].filter(Boolean).join(' · '))}</small></span>
+    <span class="tm-left">${t.at > now ? left(t.at - now) : `há ${left(now - t.at)}`}</span>
+    <span class="tm-at">${clock(t.at)}</span></div>`;
+  timersBody.innerHTML = !list.length ? '<div class="empty">Nenhum timer ainda. Eles aparecem quando as contas estão no jogo com o plugin ligado.</div>'
+    : `${next.length ? `<div class="hist-sec"><h3>Próximos</h3>${next.map(row).join('')}</div>` : ''}${past.length ? `<div class="hist-sec"><h3>Recentes</h3>${past.map(row).join('')}</div>` : ''}`;
+}
+const Timers = overlay(document.getElementById('timersSheet'), loadTimers, 1000);
+document.getElementById('openTimers').onclick = Timers.open;
+window.qb.onOpenTimers(Timers.open);

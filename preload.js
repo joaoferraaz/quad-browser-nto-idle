@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('qb', {
   onFocusUrl: (cb) => ipcRenderer.on('focus-url', (_e, p) => cb(p)),
   onOpenSettings: (cb) => ipcRenderer.on('open-settings', () => cb()),
   onOpenHistory: (cb) => ipcRenderer.on('open-history', () => cb()),
+  onOpenTimers: (cb) => ipcRenderer.on('open-timers', () => cb()),
+  timers: () => ipcRenderer.invoke('timers:get'),
   onPlugins: (cb) => ipcRenderer.on('plugins', (_e, s) => cb(s)),
   onPluginAlert: (cb) => ipcRenderer.on('plugin-alert', (_e, a) => cb(a)),
   plugins: {

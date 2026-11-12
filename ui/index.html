@@ -33,6 +33,9 @@
       <span><kbd>Ctrl</kbd><kbd>L</kbd>endereço</span>
     </div>
 
+    <button class="icon histbtn" id="openTimers" title="Central de timers (Ctrl+J)" hidden>
+      <svg viewBox="0 0 16 16"><circle cx="8" cy="8.5" r="5.5"/><path d="M8 5.5v3l2 1.5M6.5 1.5h3"/></svg>
+    </button>
     <button class="icon histbtn" id="openHistory" title="Histórico de caçadas (Ctrl+H)" hidden>
       <svg viewBox="0 0 16 16"><path d="M2.5 13.5h11M4.5 11V8M7.5 11V5M10.5 11V7"/></svg>
     </button>
@@ -72,7 +75,7 @@
       </section>
 
       <section class="pane-plugins" hidden>
-        <p class="lead">Funcionam só nas páginas do NTO Idle (ntoidle.app). Apenas leem o jogo, não jogam por você.</p>
+        <p class="lead">Cada jogo tem o seu pacote e só roda nas páginas dele. Os plugins apenas leem o jogo: não clicam nem jogam por você.</p>
         <div id="pluginList"></div>
       </section>
 
@@ -98,6 +101,19 @@
         </div>
       </header>
       <div id="histBody"></div>
+    </div>
+  </div>
+
+  <div class="sheet-wrap" id="timersSheet" hidden>
+    <div class="sheet plug">
+      <header class="sheet-head">
+        <div>
+          <h2>Central de timers</h2>
+          <p class="lead">Relógios das 4 contas. Os do servidor (resets, chefes) aparecem uma vez só.</p>
+        </div>
+        <button type="button" class="icon" data-close title="Fechar (Esc)"><svg viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8"/></svg></button>
+      </header>
+      <div id="timersBody"></div>
     </div>
   </div>
 

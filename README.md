@@ -5,9 +5,9 @@
 # Quad Browser
 
 **4 navegadores isolados numa janela só.** Cada um com seu próprio cache, cookies e login, até 3 abas cada, em grade ou em tela inteira.
-Feito para quem joga com várias contas ao mesmo tempo, com plugins para o **NTO Idle**.
+Feito para quem joga com várias contas ao mesmo tempo, com plugins para o **NTO Idle** e o **Evolution Idle World**.
 
-[Baixar a última versão](../../releases/latest) · [Plugins](#plugins-do-nto-idle) · [Atalhos](#atalhos) · [Desenvolvimento](#desenvolvimento)
+[Baixar a última versão](../../releases/latest) · [Plugins](#plugins) · [Atalhos](#atalhos) · [Desenvolvimento](#desenvolvimento)
 
 ![Grade com as 4 janelas](docs/grade.png)
 
@@ -20,7 +20,7 @@ Abrir 4 contas do mesmo site no navegador comum exige 4 perfis, 4 janelas e muit
 ## Recursos
 
 - **4 janelas isoladas**: cache, cookies e armazenamento separados por janela (o login de uma não vaza para a outra) e persistentes entre aberturas.
-- **Até 3 abas por janela**, com barra de endereço, voltar, avançar, recarregar e página inicial.
+- **Até 3 abas por janela**, com barra de endereço, voltar, avançar, recarregar e página inicial. **Arraste uma aba** para mudar a ordem dentro da janela.
 - **Grade ou foco**: veja as 4 ao mesmo tempo ou só uma, pelo seletor no topo ou pelo teclado.
 - **Página inicial configurável**: uma para todas ou uma por janela.
 - **Limpar dados de uma janela só**, sem afetar as outras.
@@ -59,10 +59,15 @@ Para abrir direto numa janela específica, crie um atalho com o argumento `--jan
 | `F5` / `Ctrl+R` | Recarrega |
 | `Alt+←` / `Alt+→` | Voltar / avançar |
 | `Ctrl+,` | Configurações (página inicial e plugins) |
-| `Ctrl+H` | Histórico de caçadas |
+| `Ctrl+H` | Histórico de caçadas (NTO Idle) |
+| `Ctrl+J` | Central de timers |
 | `F12` | DevTools da aba ativa |
 
-## Plugins do NTO Idle
+## Plugins
+
+Cada jogo tem o seu pacote, que só roda nas páginas dele. Em **Configurações → Plugins**, cada plugin tem uma chave geral, a escolha de em quais janelas roda (J1 a J4) e seus ajustes.
+
+### NTO Idle
 
 Em **Configurações → Plugins**, cada plugin tem uma chave geral, a escolha de em quais janelas roda (J1 a J4) e seus ajustes.
 
@@ -85,16 +90,26 @@ Em **Configurações → Plugins**, cada plugin tem uma chave geral, a escolha d
 </tr>
 </table>
 
-<sub>As imagens usam um jogo simulado (incluído em <code>dev/mock-nto</code>) só para demonstração.</sub>
+### Evolution Idle World
+
+| Plugin | O que faz |
+|---|---|
+| **Painel das contas + alertas** | Faixa de status: Tamer e % do nível, Digimon ativo e vida, XP/h, kills/h, pontos de Tamer livres. Avisa vida baixa, ponto de Tamer esquecido, sem caçar (Auto-Farm desligado), desconexão, prismático ou especial por perto, evolução, PM e citações. Recarrega se o jogo travar. |
+| **Lucro do farm** | Bits/h ganhos nas kills, Bits/h gastos (cura, compra automática VIP, loja) e o saldo líquido. Avisa quando o farm está no prejuízo. |
+| **Central de timers** | Botão de relógio no topo (ou **Ctrl+J**): resets diário (05:00) e semanal, chefes (anúncio e horários quando você abre a lista no jogo), ovos na incubadora, buffs e previsão do próximo nível do Tamer e de cada Digimon. Avisos de chefe vêm uma vez só, mesmo com 4 contas. |
+
+![Central de timers](docs/timers.png)
+
+<sub>As imagens usam jogos simulados (incluídos em <code>dev/</code>) só para demonstração.</sub>
 
 ### Como os plugins funcionam (e o que eles não fazem)
 
-- Rodam **somente** em páginas de `ntoidle.app`.
-- **Apenas leem** o estado que o próprio cliente do jogo já tem na página (`window.NTO.ctx`). Nenhum plugin envia comando ao servidor, clica, usa jutsu ou joga por você.
+- Rodam **somente** nas páginas do jogo de cada pacote (`ntoidle.app`, `evolutionidleworld.com.br`).
+- **Apenas leem.** No NTO Idle, o estado que o cliente do jogo já tem na página (`window.NTO.ctx`). No Evolution Idle World, as mensagens que o servidor já envia ao jogo, por uma escuta passiva instalada antes da página carregar. Nenhum plugin envia comando ao servidor, clica ou joga por você.
 - A única ação automática é **recarregar a página** quando ela trava, igual a apertar F5.
 - Tudo fica no seu computador, em `%APPDATA%\Quad Browser\`: `config.json` (página inicial), `plugins.json` (ajustes dos plugins) e `hunts.json` (histórico).
 
-> Projeto de fã, **não oficial** e sem vínculo com o NTO Idle. Respeite as regras do jogo sobre ferramentas externas e múltiplas contas.
+> Projeto de fã, **não oficial** e sem vínculo com o NTO Idle nem com o Evolution Idle World. Respeite as regras do jogo sobre ferramentas externas e múltiplas contas.
 
 ## Desenvolvimento
 
@@ -117,16 +132,19 @@ No Windows também dá para dar dois cliques em `abrir.bat` (instala as dependê
 main.js              processo principal: janela, abas (WebContentsView), sessões, atalhos
 preload.js           ponte segura entre a interface e o processo principal
 ui/                  interface (HTML, CSS, JS, fontes e logo)
-plugins/host.js      catálogo de plugins, injeção nas abas, leitura a cada 2s, alertas e histórico
-plugins/sdk.js       roda dentro da página do jogo e monta o "retrato" da conta
-plugins/*.js         um arquivo por plugin (layout.js é recurso padrão, sempre ligado)
-dev/mock-nto/        jogo simulado para testar plugins sem login
+plugins/host.js      pacotes por jogo, injeção nas abas, leitura a cada 2s, alertas, timers e histórico
+plugins/early.js     preload das abas: escuta passiva de WebSocket (só nos jogos que precisam)
+plugins/core.js      núcleo comum dos plugins (registro, liga/desliga, fila de eventos)
+plugins/sdk.js       retrato da conta no NTO Idle; plugins/*.js são os plugins dele
+plugins/eiw/         retrato da conta e plugins do Evolution Idle World
+dev/mock-nto/        NTO Idle simulado para testar sem login
+dev/mock-eiw/        servidor simulado do Evolution (node dev/mock-eiw/server.js, requer o pacote ws)
 build/               ícones do app
 ```
 
 ### Criando um plugin
 
-1. Crie `plugins/meu-plugin.js`:
+1. Crie o arquivo no pacote do jogo (ex.: `plugins/meu-plugin.js` ou `plugins/eiw/meu-plugin.js`):
 
    ```js
    window.__qb.define('meu-plugin', (api) => ({
@@ -140,17 +158,18 @@ build/               ícones do app
 
    `api` oferece `base()`, `player()`, `client()`, `onChat(fn)`, `onState(fn)` e `emit('alert', { key, level, text })`.
 
-2. Registre no `MANIFEST` de `plugins/host.js` (id, nome, descrição e campos de ajuste). A tela de plugins é gerada a partir dele.
+2. Registre no `MANIFEST` de `plugins/host.js` (id, `game`, `file`, nome, descrição e campos de ajuste). A tela de plugins é gerada a partir dele.
 
 3. Para testar sem login, sirva o jogo simulado e libere o host:
 
    ```bash
    cd dev/mock-nto && python -m http.server 8765
    # em outro terminal, na raiz do projeto:
-   QB_PLUGIN_HOSTS=127.0.0.1 QB_PLUGIN_DEV=1 npm start
+   QB_PLUGIN_HOSTS=127.0.0.1:8765 QB_PLUGIN_DEV=1 npm start
+   # Evolution: node dev/mock-eiw/server.js e QB_EIW_HOSTS=127.0.0.1:8766
    ```
 
-   No PowerShell: `$env:QB_PLUGIN_HOSTS='127.0.0.1'; $env:QB_PLUGIN_DEV='1'; npm start`.
+   No PowerShell: `$env:QB_PLUGIN_HOSTS='127.0.0.1:8765'; $env:QB_PLUGIN_DEV='1'; npm start`.
    `QB_PLUGIN_DEV=1` relê os arquivos de plugin a cada recarga da aba.
 
 ### Publicando uma versão

@@ -4,13 +4,9 @@
 (() => {
   if (window.__qb) return;
 
-  const defs = {};      // id -> fábrica do plugin
-  const live = {};      // id -> instância ativa
-  const queue = [];     // eventos para o app (alertas, recarregar, etc.)
-  let view = { grid: true, w: innerWidth, h: innerHeight };
   let G = null;         // módulo /js/game.js do próprio jogo (derived, expForLevel, fmt...)
   let lastState = 0, boundClient = null, boundNet = null;
-  const chatSubs = new Set(), stateSubs = new Set();
+  const chatSubs = new Set();
 
   import('/js/game.js').then((m) => { G = m; }).catch(() => {});
 
@@ -24,9 +20,7 @@
     if (c && c !== boundClient) {
       boundClient = c;
       c.on('state', () => {
-        if (c !== boundClient) return;
-        lastState = Date.now();
-        stateSubs.forEach((f) => { try { f(); } catch (e) { console.warn('[qb]', e); } });
+        if (c === boundClient) lastState = Date.now();
       });
     }
     if (n && n !== boundNet) {
@@ -75,35 +69,14 @@
       bag: { used: (p.inventory || []).length, cap },
       gold: p.gold,
       lastState,
+      mission: p.mission ? { title: p.mission.title, until: p.mission.until - (c.offset || 0) } : null,
+      buffs: Object.entries(c.buffs || {}).map(([k, x]) => ({ name: x.name || k, until: x.until })).filter((x) => x.until > Date.now()),
     };
   }
 
-  window.__qb = {
-    v: 1,
-    define(id, factory) { defs[id] = factory; },
-    enable(id, settings) {
-      if (!defs[id]) return false;
-      if (live[id]) { live[id].configure?.(settings); return true; }
-      const api = {
-        id, base, view: () => view, G: () => G, ctx, client, player,
-        emit: (type, data) => { queue.push({ plugin: id, type, ...data, at: Date.now() }); if (queue.length > 200) queue.shift(); },
-        onChat: (f) => { chatSubs.add(f); return () => chatSubs.delete(f); },
-        onState: (f) => { stateSubs.add(f); return () => stateSubs.delete(f); },
-        lastState: () => lastState,
-      };
-      try { live[id] = defs[id](api); live[id].start?.(settings); } catch (e) { console.warn('[qb] falha ao iniciar', id, e); delete live[id]; return false; }
-      return true;
-    },
-    disable(id) { try { live[id]?.stop?.(); } catch (e) { console.warn(e); } delete live[id]; },
-    configure(id, settings) { live[id]?.configure?.(settings); },
-    setView(v) { view = { ...view, ...v }; for (const k in live) live[k].onView?.(view); },
-    active: () => Object.keys(live),
-    // chamado pelo app a cada ~2s: devolve retrato + eventos pendentes
-    drain() {
-      bind();
-      const snap = base();
-      for (const k in live) { try { const x = live[k].tick?.(snap); if (x) snap[k] = x; } catch (e) { console.warn('[qb]', k, e); } }
-      return { snap, events: queue.splice(0) };
-    },
-  };
+  window.__qbMake('nto', base, {
+    G: () => G, player, beforeDrain: bind,
+    onChat: (f) => { chatSubs.add(f); return () => chatSubs.delete(f); },
+    lastState: () => lastState,
+  });
 })();

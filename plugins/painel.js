@@ -60,7 +60,12 @@ window.__qb.define('painel', (api) => {
       }
       if (ls && now - ls < 10e3) armed.frozen = false;
 
-      return { alerts: Object.keys(armed).filter((k) => armed[k] && k !== 'frozen') };
+      // relógios desta conta para a Central de timers
+      const timers = [
+        ...(b.mission ? [{ key: 'mission', kind: 'mission', label: `Missão ${b.mission.title} termina`, at: b.mission.until, notify: true }] : []),
+        ...b.buffs.map((x) => ({ key: `buff:${x.name}`, kind: 'buff', label: `Buff ${x.name} acaba`, at: x.until })),
+      ];
+      return { alerts: Object.keys(armed).filter((k) => armed[k] && k !== 'frozen'), timers };
     },
   };
 });

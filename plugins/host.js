@@ -6,12 +6,20 @@ const path = require('path');
 const fs = require('fs');
 
 const POLL_MS = 2000;
-const HOSTS = ['ntoidle.app', ...String(process.env.QB_PLUGIN_HOSTS || '').split(',').filter(Boolean)];
+const envList = (k) => String(process.env[k] || '').split(',').filter(Boolean);
+
+// um pacote de plugins por jogo; "tap" = jogo lido pela escuta de WebSocket (preload early.js)
+const GAMES = {
+  nto: { name: 'NTO Idle', hosts: ['ntoidle.app', ...envList('QB_PLUGIN_HOSTS')], sdk: 'sdk' },
+  eiw: { name: 'Evolution Idle World', hosts: ['evolutionidleworld.com.br', ...envList('QB_EIW_HOSTS')], sdk: 'eiw/sdk', tap: true },
+};
+const hostMatch = (url, hosts) => { try { const u = new URL(url); return hosts.some((x) => x === u.host || x === u.hostname || u.hostname.endsWith('.' + x)); } catch { return false; } };
+const gameOf = (url) => Object.keys(GAMES).find((g) => hostMatch(url, GAMES[g].hosts)) || null;
 
 // catálogo: cada plugin pode ser ligado/desligado e escolhido por janela
 const MANIFEST = [
   {
-    id: 'painel',
+    id: 'painel', game: 'nto',
     name: 'Painel das contas + alertas',
     desc: 'Faixa de status em cada janela (level, vida, stamina, exp/h, task, poções, mochila) e avisos com notificação do Windows. Recarrega a janela se o jogo travar.',
     settings: [
@@ -28,7 +36,7 @@ const MANIFEST = [
     ],
   },
   {
-    id: 'compacto',
+    id: 'compacto', game: 'nto',
     name: 'HUD compacto',
     desc: 'Na grade, esconde as janelas do jogo e mostra um mini-HUD (vida, ki, exp, alvo). Em foco, volta tudo como estava. Não altera o layout salvo do jogo.',
     settings: [
@@ -39,23 +47,58 @@ const MANIFEST = [
     ],
   },
   {
-    id: 'layout',
+    id: 'layout', game: 'nto',
     core: true, // recurso padrão do app: sempre ligado, não aparece na lista de plugins
     name: 'Layout fixo',
     desc: 'Guarda a posição das janelas do jogo (mochila, batalha, chat...) separada para a grade e para a tela inteira, e devolve cada uma para o lugar quando você troca. Arrume uma vez em cada modo.',
     settings: [],
   },
   {
-    id: 'historico',
+    id: 'historico', game: 'nto',
     name: 'Histórico de caçadas',
     desc: 'Grava cada caçada (mapa, tempo, exp, gold, mortes, poções gastas) para comparar mapas, ver o lucro de verdade, prever level e exportar CSV.',
     settings: [
       { key: 'minMin', label: 'Ignorar caçadas com menos de', type: 'number', def: 5, min: 0, max: 120, suffix: 'min' },
     ],
   },
+  {
+    id: 'eiw-painel', game: 'eiw', file: 'eiw/painel',
+    name: 'Painel das contas + alertas',
+    desc: 'Faixa de status em cada janela (Tamer, Digimon ativo e vida, XP/h, kills/h, pontos livres) e avisos: vida baixa, ponto de Tamer esquecido, parado, desconectou, prismático ou especial por perto, evolução, PM e citações. Recarrega se o jogo travar.',
+    settings: [
+      { key: 'notify', label: 'Notificação do Windows', type: 'bool', def: true },
+      { key: 'hpPct', label: 'Avisar vida do Digimon abaixo de', type: 'number', def: 25, min: 0, max: 100, suffix: '%' },
+      { key: 'idleMin', label: 'Avisar sem caçar há mais de', type: 'number', def: 3, min: 0, max: 120, suffix: 'min (0 = não)' },
+      { key: 'watchdogMin', label: 'Recarregar se travar por', type: 'number', def: 2, min: 0, max: 30, suffix: 'min (0 = não)' },
+      { key: 'points', label: 'Avisar ponto de Tamer livre', type: 'bool', def: true },
+      { key: 'rare', label: 'Avisar prismático/especial por perto', type: 'bool', def: true },
+      { key: 'pm', label: 'Avisar mensagem privada', type: 'bool', def: true },
+      { key: 'mention', label: 'Avisar quando citarem meu nome', type: 'bool', def: true },
+      { key: 'keywords', label: 'Palavras-chave no chat', type: 'text', def: '', placeholder: 'ex.: prismatic, vendo ovo' },
+    ],
+  },
+  {
+    id: 'eiw-lucro', game: 'eiw', file: 'eiw/lucro',
+    name: 'Lucro do farm',
+    desc: 'Bits/h ganhos nas kills, Bits/h gastos (cura, compra automática VIP, loja) e o saldo líquido. Avisa quando o farm está no prejuízo.',
+    settings: [
+      { key: 'lossMin', label: 'Avisar prejuízo depois de', type: 'number', def: 10, min: 0, max: 120, suffix: 'min (0 = não)' },
+    ],
+  },
+  {
+    id: 'eiw-timers', game: 'eiw', file: 'eiw/timers',
+    name: 'Central de timers',
+    desc: 'Relógios das 4 contas numa tela só (botão de relógio no topo ou Ctrl+J): resets diário e semanal, chefes (anúncio e horários quando você abre a lista no jogo), ovos na incubadora, buffs e previsão do próximo nível do Tamer e de cada Digimon.',
+    settings: [
+      { key: 'warnMin', label: 'Avisar antes', type: 'number', def: 5, min: 0, max: 120, suffix: 'min' },
+      { key: 'boss', label: 'Avisar chefes', type: 'bool', def: true },
+      { key: 'notifyEgg', label: 'Avisar ovo pronto', type: 'bool', def: true },
+      { key: 'notifyBuff', label: 'Avisar buff acabando', type: 'bool', def: true },
+      { key: 'notifyLevel', label: 'Avisar próximo nível do Digimon ativo', type: 'bool', def: false },
+      { key: 'notifyReset', label: 'Avisar resets', type: 'bool', def: false },
+    ],
+  },
 ];
-
-const FILES = ['sdk', ...MANIFEST.map((m) => m.id)];
 
 function createPluginHost({ app, state, getUi, onFocusPanel, panels = 4 }) {
   const dataDir = () => app.getPath('userData');
@@ -106,21 +149,22 @@ function createPluginHost({ app, state, getUi, onFocusPanel, panels = 4 }) {
   // ---------- por aba ----------
   const tabs = new Map(); // wc.id -> { p, tab, snap, alerts[], live, pendingSince, injected }
 
-  function isGame(url) { try { const h = new URL(url).hostname; return HOSTS.some((x) => h === x || h.endsWith('.' + x) || h === x.split(':')[0]); } catch { return false; } }
-
   const src = {};
   // QB_PLUGIN_DEV=1 relê os arquivos a cada injeção (para editar plugin sem reiniciar o app)
   const read = (f) => (!process.env.QB_PLUGIN_DEV && src[f]) || (src[f] = fs.readFileSync(path.join(__dirname, f + '.js'), 'utf8'));
 
   async function inject(rec) {
     const wc = rec.tab.view.webContents;
-    if (wc.isDestroyed() || !isGame(wc.getURL())) { rec.injected = false; return; }
-    const want = MANIFEST.filter((m) => enabledFor(m.id, rec.p)).map((m) => m.id);
+    const g = wc.isDestroyed() ? null : gameOf(wc.getURL());
+    rec.game = g;
+    if (!g) { rec.injected = false; return; }
+    const pack = MANIFEST.filter((m) => m.game === g);
+    const want = pack.filter((m) => enabledFor(m.id, rec.p)).map((m) => m.id);
     try {
       if (!want.length) { rec.injected = false; await wc.executeJavaScript(`window.__qb && __qb.active().forEach(id => __qb.disable(id))`, true); return; }
-      await wc.executeJavaScript(read('sdk'), true);
-      for (const id of want) await wc.executeJavaScript(read(id), true);
-      const calls = MANIFEST.map((m) => want.includes(m.id)
+      for (const f of ['core', GAMES[g].sdk]) await wc.executeJavaScript(read(f), true);
+      for (const m of pack) if (want.includes(m.id)) await wc.executeJavaScript(read(m.file || m.id), true);
+      const calls = pack.map((m) => want.includes(m.id)
         ? `__qb.enable(${JSON.stringify(m.id)}, ${JSON.stringify(cfg[m.id].set)});`
         : `__qb.disable(${JSON.stringify(m.id)});`).join('');
       await wc.executeJavaScript(calls + viewCall(rec.p), true);
@@ -146,7 +190,8 @@ function createPluginHost({ app, state, getUi, onFocusPanel, panels = 4 }) {
   async function poll(rec) {
     const wc = rec.tab.view.webContents;
     if (wc.isDestroyed() || !rec.injected) return;
-    const wd = cfg.painel?.on && cfg.painel.wins[rec.p] ? cfg.painel.set.watchdogMin : 0;
+    const pid = rec.game === 'eiw' ? 'eiw-painel' : 'painel';
+    const wd = enabledFor(pid, rec.p) ? cfg[pid].set.watchdogMin : 0;
     if (rec.pendingSince) {
       // a página nem responde: travou de vez
       if (wd > 0 && Date.now() - rec.pendingSince > wd * 60e3) { rec.pendingSince = 0; alert(rec, { key: 'frozen', level: 'warn', text: 'A página parou de responder, recarregando' }); wc.reload(); }
@@ -170,15 +215,50 @@ function createPluginHost({ app, state, getUi, onFocusPanel, panels = 4 }) {
     } else if (rec.live) { finalize(rec.live); rec.live = null; }
   }
 
+  const recentGlobal = new Map(); // avisos do servidor (ex.: chefe) chegam nas 4 contas: notifica uma vez
+  function notify(title, body, silent, onClick) {
+    if (!Notification.isSupported()) return;
+    const n = new Notification({ title, body, silent, icon: path.join(__dirname, '..', 'build', 'icon.png') });
+    if (onClick) n.on('click', onClick);
+    n.show();
+  }
   function alert(rec, ev) {
-    const who = rec.snap?.name ? ` · ${rec.snap.name}` : '';
     rec.alerts.unshift({ ...ev, at: Date.now() });
     rec.alerts = rec.alerts.slice(0, 20);
     getUi()?.webContents.send('plugin-alert', { p: rec.p, ...ev });
-    if (cfg.painel?.set.notify && Notification.isSupported()) {
-      const n = new Notification({ title: `J${rec.p + 1}${who}`, body: ev.text, silent: ev.level === 'ok', icon: path.join(__dirname, '..', 'build', 'icon.png') });
-      n.on('click', () => onFocusPanel(rec.p, rec.tab));
-      n.show();
+    if (ev.global) {
+      if (Date.now() - (recentGlobal.get(ev.text) || 0) < 120e3) return;
+      recentGlobal.set(ev.text, Date.now());
+    }
+    const pid = rec.game === 'eiw' ? 'eiw-painel' : 'painel';
+    if (!cfg[pid]?.set.notify) return;
+    notify(ev.global ? (GAMES[rec.game]?.name || 'Quad Browser') : `J${rec.p + 1}${rec.snap?.name ? ` · ${rec.snap.name}` : ''}`, ev.text, ev.level === 'ok', () => onFocusPanel(rec.p, rec.tab));
+  }
+
+  // ---------- central de timers ----------
+  const timerState = new Map(); // key -> { warned, fired }
+  function timersList() {
+    const out = new Map();
+    for (const rec of tabs.values()) {
+      const ts = rec.snap?.['eiw-timers']?.timers || rec.snap?.painel?.timers;
+      for (const t of ts || []) {
+        const key = t.global ? t.key : `${rec.p}:${t.key}`;
+        if (!out.has(key)) out.set(key, { ...t, key, panel: t.global ? null : rec.p, who: t.global ? null : rec.snap?.name, game: rec.game, rec });
+      }
+    }
+    return [...out.values()];
+  }
+  function checkTimers() {
+    const now = Date.now(), list = timersList();
+    for (const t of list) {
+      if (!t.notify || !t.at) continue;
+      const st = timerState.get(t.key) || timerState.set(t.key, { seenAt: now, firstAt: t.at }).get(t.key);
+      if (t.at < st.seenAt) continue; // já estava no passado quando apareceu
+      const warnMs = (cfg['eiw-timers']?.set.warnMin ?? 5) * 60e3;
+      const title = t.who ? `J${t.panel + 1} · ${t.who}` : 'Central de timers';
+      const click = t.rec ? () => onFocusPanel(t.rec.p, t.rec.tab) : null;
+      if (!st.warned && warnMs > 0 && t.at - now <= warnMs && t.at > now && t.at - st.seenAt > warnMs) { st.warned = true; notify(title, `${t.label} em ${Math.ceil((t.at - now) / 60e3)} min`, false, click); }
+      if (!st.fired && t.at <= now) { st.fired = true; notify(title, `${t.label}: agora`, false, click); }
     }
   }
 
@@ -197,14 +277,18 @@ function createPluginHost({ app, state, getUi, onFocusPanel, panels = 4 }) {
       on: Object.fromEntries(MANIFEST.map((m) => [m.id, cfg[m.id].on])),
       wins: Object.fromEntries(MANIFEST.map((m) => [m.id, cfg[m.id].wins])),
       panels: Array.from({ length: panels }, (_, p) => panelInfo(p)),
-      thresholds: cfg.painel.set,
+      thresholds: { nto: cfg.painel.set, eiw: cfg['eiw-painel'].set },
+      timers: cfg['eiw-timers'].on || cfg.painel.on,
     });
   }
 
-  setInterval(async () => { await Promise.all([...tabs.values()].map(poll)); pushUi(); }, POLL_MS);
+  setInterval(async () => { await Promise.all([...tabs.values()].map(poll)); pushUi(); checkTimers(); }, POLL_MS);
 
   // ---------- IPC ----------
-  ipcMain.handle('plugins:get', () => ({ manifest: MANIFEST.filter((m) => !m.core), cfg }));
+  ipcMain.handle('plugins:get', () => ({ manifest: MANIFEST.filter((m) => !m.core), cfg, games: Object.fromEntries(Object.entries(GAMES).map(([k, g]) => [k, g.name])) }));
+  ipcMain.handle('timers:get', () => timersList().map(({ rec, ...t }) => t));
+  // o preload das abas pergunta em quais sites instalar a escuta passiva de WebSocket
+  ipcMain.on('qb:tap-hosts', (e) => { e.returnValue = Object.values(GAMES).filter((g) => g.tap).flatMap((g) => g.hosts); });
   ipcMain.handle('plugins:set', (_e, id, patch) => {
     if (!cfg[id]) return null;
     if (patch.on !== undefined) cfg[id].on = !!patch.on;

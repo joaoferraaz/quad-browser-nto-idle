@@ -36,7 +36,6 @@ let plugins = null;       // gerenciador de plugins (criado quando o app fica pr
 let settingsOpen = false; // com o painel de configurações aberto, as páginas ficam ocultas
 
 let win = null;
-let ui = null;
 let nextId = 1;
 
 const state = {
@@ -56,16 +55,6 @@ function normalize(input, fallback = DEFAULT_HOME) {
   return SEARCH + encodeURIComponent(s);
 }
 
-function history(wc) {
-  const h = wc.navigationHistory;
-  return {
-    canBack: h ? h.canGoBack() : wc.canGoBack(),
-    canFwd: h ? h.canGoForward() : wc.canGoForward(),
-    back: () => (h ? h.goBack() : wc.goBack()),
-    fwd: () => (h ? h.goForward() : wc.goForward()),
-  };
-}
-
 const activeTab = (p) => {
   const panel = state.panels[p];
   return panel && panel.tabs[panel.activeTab];
@@ -78,8 +67,8 @@ function push() {
   pushQueued = true;
   setImmediate(() => {
     pushQueued = false;
-    if (!ui || ui.webContents.isDestroyed()) return;
-    ui.webContents.send('state', {
+    if (!win || win.webContents.isDestroyed()) return;
+    win.webContents.send('state', {
       mode: state.mode,
       focused: state.focused,
       active: state.active,
@@ -88,15 +77,15 @@ function push() {
         activeTab: panel.activeTab,
         tabs: panel.tabs.map((t) => {
           const wc = t.view.webContents;
-          const h = history(wc);
+          const h = wc.navigationHistory;
           return {
             id: t.id,
             title: t.title,
             url: wc.getURL() || t.url,
             favicon: t.favicon,
             loading: t.loading,
-            canBack: h.canBack,
-            canFwd: h.canFwd,
+            canBack: h.canGoBack(),
+            canFwd: h.canGoForward(),
           };
         }),
       })),
@@ -131,11 +120,12 @@ function newTab(p, url = homeOf(p)) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      preload: path.join(__dirname, 'plugins', 'early.js'), // escuta passiva de WebSocket só nos jogos que precisam
       backgroundThrottling: false, // jogos continuam rodando mesmo com a aba escondida
     },
   });
   view.setBackgroundColor('#ffffff');
-  if (view.setBorderRadius) view.setBorderRadius(10); // cantos arredondados (Electron 34+)
+  view.setBorderRadius(10);
   const tab = { id: nextId++, view, title: 'Nova aba', url: normalize(url), favicon: null, loading: true };
   panel.tabs.push(tab);
   panel.activeTab = panel.tabs.length - 1;
@@ -184,6 +174,16 @@ function closeTab(p, i) {
   push();
 }
 
+// arrastar aba: muda a ordem dentro da mesma janela (entre janelas não, para não misturar sessões)
+function moveTab(p, from, to) {
+  const panel = state.panels[p];
+  if (!panel.tabs[from] || to < 0 || to >= panel.tabs.length || from === to) return;
+  const cur = panel.tabs[panel.activeTab];
+  panel.tabs.splice(to, 0, panel.tabs.splice(from, 1)[0]);
+  panel.activeTab = panel.tabs.indexOf(cur);
+  push();
+}
+
 function selectTab(p, i) {
   const panel = state.panels[p];
   if (!panel.tabs[i]) return;
@@ -225,9 +225,10 @@ const commands = {
   newTab: (p, url) => newTab(p, url),
   closeTab: (p, i) => closeTab(p, i),
   selectTab: (p, i) => selectTab(p, i),
+  moveTab: (p, from, to) => moveTab(p, from, to),
   navigate: (p, url) => { const t = activeTab(p); if (t) { t.view.webContents.loadURL(normalize(url)); t.view.webContents.focus(); } },
-  back: (p) => { const t = activeTab(p); if (t) history(t.view.webContents).back(); },
-  fwd: (p) => { const t = activeTab(p); if (t) history(t.view.webContents).fwd(); },
+  back: (p) => { const t = activeTab(p); if (t) t.view.webContents.navigationHistory.goBack(); },
+  fwd: (p) => { const t = activeTab(p); if (t) t.view.webContents.navigationHistory.goForward(); },
   reload: (p) => { const t = activeTab(p); if (t) t.view.webContents.reload(); },
   stop: (p) => { const t = activeTab(p); if (t) t.view.webContents.stop(); },
   home: (p) => { const t = activeTab(p); if (t) t.view.webContents.loadURL(homeOf(p)); },
@@ -270,38 +271,33 @@ ipcMain.on('layout', (_e, rects) => {
 });
 
 // ---------- atalhos (capturados em toda webContents, inclusive das páginas) ----------
+// envia para a interface (focando-a antes): abrir telas, focar a URL
+const toUi = (ch, ...a) => { win.webContents.focus(); win.webContents.send(ch, ...a); };
+const toggleMode = () => setMode(state.mode === 'grid' ? 'focus' : 'grid');
+
+// Ctrl+tecla -> ação (capturado em toda webContents, inclusive dentro das páginas)
+const CTRL = {
+  0: () => setMode('grid'), g: toggleMode, t: (p) => newTab(p), w: (p) => closeTab(p, state.panels[p].activeTab),
+  l: (p) => toUi('focus-url', p), r: (p) => commands.reload(p),
+  ',': () => toUi('open-settings'), h: () => toUi('open-history'), j: () => toUi('open-timers'),
+};
+const KEYS = {
+  F11: toggleMode, F6: (p) => toUi('focus-url', p), F5: (p) => commands.reload(p),
+  F12: (p) => activeTab(p)?.view.webContents.toggleDevTools(),
+};
+
 function attachShortcuts(wc) {
   wc.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
-    const ctrl = input.control || input.meta;
-    const key = input.key;
-    const p = state.active;
-    let handled = true;
-
-    if (ctrl && !input.shift && /^[1-4]$/.test(key)) activate(Number(key) - 1);
-    else if (ctrl && key === '0') setMode('grid');
-    else if (ctrl && key.toLowerCase() === 'g') setMode(state.mode === 'grid' ? 'focus' : 'grid');
-    else if (key === 'F11') setMode(state.mode === 'grid' ? 'focus' : 'grid');
-    else if (ctrl && key.toLowerCase() === 't') newTab(p);
-    else if (ctrl && key.toLowerCase() === 'w') closeTab(p, state.panels[p].activeTab);
-    else if (ctrl && key === 'Tab') {
-      const panel = state.panels[p];
-      const n = panel.tabs.length;
-      selectTab(p, (panel.activeTab + (input.shift ? n - 1 : 1)) % n);
-    }
-    else if ((ctrl && key.toLowerCase() === 'l') || key === 'F6') {
-      ui.webContents.focus();
-      ui.webContents.send('focus-url', p);
-    }
-    else if (key === 'F5' || (ctrl && key.toLowerCase() === 'r')) commands.reload(p);
-    else if (input.alt && key === 'ArrowLeft') commands.back(p);
-    else if (input.alt && key === 'ArrowRight') commands.fwd(p);
-    else if (ctrl && key === ',') { ui.webContents.focus(); ui.webContents.send('open-settings'); }
-    else if (ctrl && key.toLowerCase() === 'h') { ui.webContents.focus(); ui.webContents.send('open-history'); }
-    else if (key === 'F12') { const t = activeTab(p); if (t) t.view.webContents.toggleDevTools(); }
-    else handled = false;
-
-    if (handled) event.preventDefault();
+    const ctrl = input.control || input.meta, key = input.key, k = key.toLowerCase(), p = state.active;
+    let fn = null;
+    if (ctrl && !input.shift && /^[1-4]$/.test(key)) fn = () => activate(Number(key) - 1);
+    else if (ctrl && key === 'Tab') fn = () => { const pn = state.panels[p], n = pn.tabs.length; selectTab(p, (pn.activeTab + (input.shift ? n - 1 : 1)) % n); };
+    else if (ctrl) fn = CTRL[k];
+    else if (input.alt && key === 'ArrowLeft') fn = commands.back;
+    else if (input.alt && key === 'ArrowRight') fn = commands.fwd;
+    else fn = KEYS[key];
+    if (fn) { event.preventDefault(); fn(p); }
   });
 }
 
@@ -318,7 +314,7 @@ function createWindow() {
   loadConfig();
   plugins = createPluginHost({
     app, state, panels: PANELS,
-    getUi: () => ui,
+    getUi: () => win,
     onFocusPanel: (p, tab) => {
       if (!win) return;
       if (win.isMinimized()) win.restore();
@@ -347,15 +343,14 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
-  ui = win; // a própria janela hospeda a interface; as páginas são views por cima
   win.once('ready-to-show', () => win.show());
-  attachShortcuts(ui.webContents);
+  attachShortcuts(win.webContents);
 
   for (let i = 0; i < PANELS; i++) {
     state.panels.push({ partition: `persist:janela-${i + 1}`, tabs: [], activeTab: 0, rect: null });
   }
 
-  ui.webContents.once('did-finish-load', () => {
+  win.webContents.once('did-finish-load', () => {
     for (let i = 0; i < PANELS; i++) newTab(i);
     state.active = 0;
     startArg();
@@ -363,14 +358,16 @@ function createWindow() {
     // a última view criada costuma roubar o foco; devolve para a janela ativa
     setTimeout(() => activate(state.active), 400);
   });
-  ui.webContents.loadFile(path.join(__dirname, 'ui', 'index.html'));
+  win.webContents.loadFile(path.join(__dirname, 'ui', 'index.html'));
 
-  win.on('closed', () => { win = null; ui = null; });
+  win.on('closed', () => { win = null; });
 }
 
 Menu.setApplicationMenu(null);
-// nome que aparece nas notificações do Windows (igual ao appId do instalador)
-app.setAppUserModelId('quadbrowser');
+// nome que aparece nas notificações do Windows:
+// instalado, usa o appId do instalador (o Windows mostra o nome do atalho, "Quad Browser");
+// portátil ou rodando pelo código (abrir.bat), o próprio id é o nome exibido.
+app.setAppUserModelId(!app.isPackaged || process.env.PORTABLE_EXECUTABLE_DIR ? 'Quad Browser' : 'quadbrowser');
 app.on('before-quit', () => plugins?.flush());
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => app.quit());

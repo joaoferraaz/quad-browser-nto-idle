@@ -376,3 +376,27 @@ svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width:
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
 ::-webkit-scrollbar-thumb:hover { background-color: rgba(255,255,255,.18); }
 ::-webkit-scrollbar-corner { background: transparent; }
+
+/* ---------- abas arrastáveis ---------- */
+.tab.dragging { opacity: .45; }
+.tab.drop { box-shadow: inset 2px 0 0 var(--c); }
+
+/* ---------- plugins agrupados por jogo ---------- */
+.plug-game { margin: 18px 2px 8px; font: 600 10.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.plug-game:first-child { margin-top: 0; }
+
+/* ---------- central de timers ---------- */
+.tm-row { display: grid; grid-template-columns: 22px auto 1fr auto 52px; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; }
+.tm-row:hover { background: var(--raise); }
+.tm-row + .tm-row { border-top: 1px solid rgba(255,255,255,.04); }
+.tm-ic { color: var(--muted); text-align: center; }
+.tm-who { --c: var(--soft); margin: 0; justify-self: start; }
+.tm-who[data-p="0"] { --c: var(--c1); } .tm-who[data-p="1"] { --c: var(--c2); } .tm-who[data-p="2"] { --c: var(--c3); } .tm-who[data-p="3"] { --c: var(--c4); }
+.tm-txt { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tm-txt b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tm-txt small { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tm-left { font: 600 12.5px var(--mono); color: var(--text); }
+.tm-at { font: 500 11px var(--mono); color: var(--muted); text-align: right; }
+.tm-row.soon .tm-left { color: #fde68a; }
+.tm-row.past { opacity: .6; }
+.tm-row.past .tm-left { color: var(--muted); font-weight: 500; }
